@@ -1,7 +1,6 @@
 # ============================================================
-# 梦幻西游五开本地 AI 自动任务系统 - 依赖
-# 安装: pip install -r requirements.txt
-# Python 3.11+ (Windows 推荐 3.13/3.14)
+# 梦幻西游五开本地 AI 自动任务系统
+# Windows / Python 3.11+
 # ============================================================
 
 # --- 基础 ---
@@ -12,9 +11,11 @@ pydantic-settings>=2.2
 
 # --- Windows 自动化 ---
 pywin32>=306
-pyautogui>=0.9.54
 keyboard>=0.13.5
 mouse>=0.7.1
+
+# --- 桌面 UI ---
+PySide6>=6.7,<7
 
 # --- 视觉 ---
 mss>=9.0
@@ -22,14 +23,12 @@ numpy>=1.26
 opencv-python>=4.9
 Pillow>=10.0
 
-# --- OCR (rapidocr 1.2.x 支持 Python 3.14) ---
+# --- OCR ---
 rapidocr-onnxruntime>=1.2.3,<1.3
 onnxruntime>=1.19
 
-# --- Web 后端(FastAPI + WebSocket) ---
-fastapi>=0.111
-uvicorn[standard]>=0.29
-websockets>=12.0
+# --- AI / YOLO（可选）---
+ultralytics>=8.4.90,<9
 
 # --- 测试 ---
 pytest>=8.0
