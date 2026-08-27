@@ -20,20 +20,48 @@ class GameRunner:
         self._stop.clear(); self._running=True
         self._thread=threading.Thread(target=self._run,args=(task,goal,auto),daemon=True); self._thread.start(); return True
     def start_attached(self, win: WindowInfo, task="shimen", goal="", auto=True):
+        """同步完成窗口附着和 Agent 初始化，再启动后台循环。
+
+        旧实现把 _prepare_coordinator 放在线程里，UI 点击后立即执行“单步”时可能
+        看到 coordinator 已创建但 agents 尚未创建，造成“没有可执行的队长 Agent”。
+        """
         if self._running or win is None or not win.is_valid(): return False
-        self._stop.clear(); self._running=True
-        self._thread=threading.Thread(target=self._run_attached,args=(win,task,goal,auto),daemon=True); self._thread.start(); return True
+        try:
+            self._stop.clear()
+            self._phase="attaching"
+            self.client.state.window_hwnd=win.hwnd
+            self.client.state.window_title=win.title
+            self.client.state.running=True
+            self.client.state.phase="in_game"
+            self.coordinator=self._prepare_coordinator(win,task)
+            leader=self.coordinator.team.leader
+            if not leader or leader not in self.coordinator.agents:
+                self.coordinator=None
+                self._phase="error:no_leader_agent"
+                return False
+            self._last_status=self.coordinator.status()
+            self._running=True
+            self._thread=threading.Thread(target=self._run_attached,args=(win,task,goal,auto),daemon=True)
+            self._thread.start()
+            return True
+        except Exception as exc:
+            logger.exception("attached initialization failed")
+            self._phase="error:"+str(exc)[:120]
+            self._running=False
+            return False
     def step_attached(self, win: WindowInfo, task="shimen", goal=""):
         """在已绑定真实窗口上只执行一个 Agent step，便于观察和调试。"""
         if win is None or not win.is_valid():
             return {"ok": False, "error": "窗口无效"}
         try:
+            if self._running:
+                return {"ok": False, "error": "自动任务正在运行，请先停止后再执行单步"}
             if self.coordinator is None:
                 self.coordinator = self._prepare_coordinator(win, task)
                 self._phase = "attached_step"
             agent = self.coordinator.agents.get(self.coordinator.team.leader)
             if agent is None:
-                return {"ok": False, "error": "没有可执行的队长 Agent"}
+                return {"ok": False, "error": "没有可执行的队长 Agent，请重新绑定窗口"}
             result = agent.step(goal or task)
             self._last_status = self.coordinator.status()
             return {"ok": True, "result": result}
@@ -51,6 +79,9 @@ class GameRunner:
             c.bind_windows()
         else:
             leader=c.team.leader
+            if not leader and c.accounts:
+                leader=next(iter(c.accounts))
+                c.team.set_leader(leader)
             if leader and leader in c.accounts:
                 acc=c.accounts[leader]; acc.win=win; acc.state.hwnd=win.hwnd; acc.state.win_rect=win.rect
                 from automation.input_driver import InputDriver
@@ -60,11 +91,14 @@ class GameRunner:
         if task_name:
             bound=c.bind_task(task_name)
             if bound is None: raise RuntimeError(f"无法绑定任务: {task_name}")
-        c.create_agents(); return c
+        c.create_agents()
+        return c
     def _run_attached(self,win,task,goal,auto):
         try:
             self._phase="attached"; self.client.state.window_hwnd=win.hwnd; self.client.state.window_title=win.title; self.client.state.running=True; self.client.state.phase="in_game"
-            self.coordinator=self._prepare_coordinator(win,task); self._phase="team"; self.rl_env=self._build_rl_env(); self._phase="running"
+            if self.coordinator is None:
+                self.coordinator=self._prepare_coordinator(win,task)
+            self._phase="team"; self.rl_env=self._build_rl_env(); self._phase="running"
             if auto: self.coordinator.start(goal=goal or task,max_steps=None)
             while not self._stop.is_set(): self._last_status=self.coordinator.status(); time.sleep(0.5)
         except Exception as exc:
