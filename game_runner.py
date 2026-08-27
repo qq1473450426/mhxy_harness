@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""自主游戏编排器：支持启动客户端和附着到已运行窗口。"""
+"""自主游戏编排器：支持真实窗口附着、自动执行和单步执行。"""
 from __future__ import annotations
 import logging, threading, time
 from typing import Any, Dict, Optional
@@ -23,6 +23,23 @@ class GameRunner:
         if self._running or win is None or not win.is_valid(): return False
         self._stop.clear(); self._running=True
         self._thread=threading.Thread(target=self._run_attached,args=(win,task,goal,auto),daemon=True); self._thread.start(); return True
+    def step_attached(self, win: WindowInfo, task="shimen", goal=""):
+        """在已绑定真实窗口上只执行一个 Agent step，便于观察和调试。"""
+        if win is None or not win.is_valid():
+            return {"ok": False, "error": "窗口无效"}
+        try:
+            if self.coordinator is None:
+                self.coordinator = self._prepare_coordinator(win, task)
+                self._phase = "attached_step"
+            agent = self.coordinator.agents.get(self.coordinator.team.leader)
+            if agent is None:
+                return {"ok": False, "error": "没有可执行的队长 Agent"}
+            result = agent.step(goal or task)
+            self._last_status = self.coordinator.status()
+            return {"ok": True, "result": result}
+        except Exception as exc:
+            logger.exception("single step failed")
+            return {"ok": False, "error": str(exc)}
     def stop(self):
         self._stop.set()
         if self.coordinator is not None: self.coordinator.stop()
