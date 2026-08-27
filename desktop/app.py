@@ -29,9 +29,9 @@ class HarnessDesktop(QMainWindow):
         self.refresh_btn.clicked.connect(self.refresh_windows); self.bind_btn.clicked.connect(self.bind_window); self.front_btn.clicked.connect(self.front_window); self.window_info=QPlainTextEdit(); self.window_info.setReadOnly(True); l.addWidget(self.window_info); return w
     def _task_page(self):
         w,l=self._page("任务控制"); box=QGroupBox("真实执行"); f=QFormLayout(box); self.task_box=QComboBox(); self.task_box.addItem("师门", "shimen"); self.task_box.addItem("抓鬼", "zhuagui"); self.task_box.addItem("封妖", "fengyao"); self.goal=QLineEdit("完成师门任务"); f.addRow("任务",self.task_box); f.addRow("目标",self.goal); l.addWidget(box)
-        row=QHBoxLayout(); self.start_btn=QPushButton("附着并启动真实任务"); self.stop_btn=QPushButton("停止"); self.manual_btn=QPushButton("测试鼠标移动"); row.addWidget(self.start_btn); row.addWidget(self.stop_btn); row.addWidget(self.manual_btn); l.addLayout(row)
+        row=QHBoxLayout(); self.start_btn=QPushButton("附着并启动真实任务"); self.step_btn=QPushButton("执行一步"); self.stop_btn=QPushButton("停止"); self.manual_btn=QPushButton("测试鼠标移动"); row.addWidget(self.start_btn); row.addWidget(self.step_btn); row.addWidget(self.stop_btn); row.addWidget(self.manual_btn); l.addLayout(row)
         self.x=QSpinBox(); self.y=QSpinBox(); self.x.setRange(0,10000); self.y.setRange(0,10000); rf=QFormLayout(); rf.addRow("窗口相对 X",self.x); rf.addRow("窗口相对 Y",self.y); l.addLayout(rf)
-        self.start_btn.clicked.connect(self.start_task); self.stop_btn.clicked.connect(self.stop_task); self.manual_btn.clicked.connect(self.test_mouse); self.task_log=QPlainTextEdit(); self.task_log.setReadOnly(True); l.addWidget(self.task_log); return w
+        self.start_btn.clicked.connect(self.start_task); self.step_btn.clicked.connect(self.step_task); self.stop_btn.clicked.connect(self.stop_task); self.manual_btn.clicked.connect(self.test_mouse); self.task_log=QPlainTextEdit(); self.task_log.setReadOnly(True); l.addWidget(self.task_log); return w
     def _team_page(self):
         w,l=self._page("五开管理"); self.team_view=QPlainTextEdit(); self.team_view.setReadOnly(True); l.addWidget(self.team_view); row=QHBoxLayout(); self.pause=QPushButton("暂停队长"); self.resume=QPushButton("恢复队长"); row.addWidget(self.pause); row.addWidget(self.resume); l.addLayout(row); self.pause.clicked.connect(lambda:self._pause(False)); self.resume.clicked.connect(lambda:self._pause(True)); return w
     def _vision_page(self):
@@ -64,6 +64,10 @@ class HarnessDesktop(QMainWindow):
         if not self.bound:self.bind_window()
         if not self.bound:return
         task=self.task_box.currentData(); ok=self.runner.start_attached(self.bound,task,self.goal.text().strip(),True); self._log(f"附着真实任务: {'成功' if ok else '失败'} task={task}")
+    def step_task(self):
+        if not self.bound:self.bind_window()
+        if not self.bound:return
+        task=self.task_box.currentData(); result=self.runner.step_attached(self.bound,task,self.goal.text().strip()); self._log("单步结果:\n"+json.dumps(result,ensure_ascii=False,indent=2,default=str))
     def stop_task(self):
         if self.runner:self.runner.stop();self._log("已请求停止")
     def test_mouse(self):
@@ -90,7 +94,7 @@ class HarnessDesktop(QMainWindow):
                 self.train_log.appendPlainText(json.dumps(self._train_result,ensure_ascii=False,indent=2)); self._train_result=None; self.opt_btn.setEnabled(True)
             if self.bound and self.bound.is_valid():
                 from vision.capture import capture_window
-                data,(ww,hh)=capture_window(self.bound); img=QImage(data,ww,hh,ww*3,QImage.Format_RGB888); self.preview.setPixmap(QPixmap.fromImage(img).scaled(self.preview.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation)); self.vision_log.setPlainText(f"窗口={self.bound.title}\nHWND={self.bound.hwnd}\n截图={ww}x{hh}")
+                data,(ww,hh)=capture_window(self.bound); img=QImage(data,ww,hh,ww*3,QImage.Format_RGB888); self.preview.setPixmap(QPixmap.fromImage(img).scaled(self.preview.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation)); self.vision_log.setPlainText(f"窗口={self.bound.title}\nHWND={self.bound.hwnd}\n截图={ww}x{hh}\nOCR ROI=右侧任务追踪 + 中下部对话框")
         except Exception as exc:self.vision_log.setPlainText("运行状态读取失败: "+str(exc))
     def closeEvent(self,event):
         if self.runner:self.runner.stop()
