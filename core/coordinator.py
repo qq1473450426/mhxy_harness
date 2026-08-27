@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""五开协调器 (Phase 5, 规格书 §11/§14/§49/§50)。"""
+"""五开协调器。"""
 from __future__ import annotations
 
 import logging
@@ -16,11 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class Coordinator:
-    """多账号协调器。"""
-
-    def __init__(self, settings: Dict[str, Any],
-                 ocr_backend: str = "rapidocr",
-                 tick_seconds: float = 0.5) -> None:
+    def __init__(self, settings: Dict[str, Any], ocr_backend: str = "rapidocr", tick_seconds: float = 0.5) -> None:
         self.settings = settings
         self.ocr_backend = ocr_backend
         self.tick = tick_seconds
@@ -38,7 +34,6 @@ class Coordinator:
         self._task_params: Dict[str, Any] = {}
 
     def build_from_config(self) -> int:
-        """按 config.yaml 的 accounts 段创建账号。返回启用数。"""
         acc_cfg_list = self.settings.get("accounts", {}).get("list", [])
         leader_id = self.settings.get("accounts", {}).get("leader", "")
         enabled = [c for c in acc_cfg_list if c.get("enabled", False)]
@@ -55,12 +50,9 @@ class Coordinator:
         if len(self.team.members) >= 2:
             self.team.backup_leader = self.team.members[1]
         self.team.task = self.settings.get("tasks", {}).get("default", "")
-        logger.info("队伍组建: leader=%s members=%s backup=%s",
-                    self.team.leader, self.team.members, self.team.backup_leader)
         return len(enabled)
 
     def bind_windows(self) -> Dict[str, bool]:
-        """为所有账号绑定窗口。返回 {账号: 是否成功}。"""
         results = {}
         for acc_id, acc in self.accounts.items():
             results[acc_id] = acc.bind_window()
@@ -73,7 +65,6 @@ class Coordinator:
         return results
 
     def bind_task(self, task_name: str, **params) -> Any:
-        """记录任务模板；Agent 创建时为每个账号创建独立任务实例。"""
         if task_name not in self.task_manager.available:
             logger.warning("未知任务: %s (可用: %s)", task_name, self.task_manager.available)
             return None
@@ -84,32 +75,29 @@ class Coordinator:
         logger.info("绑定队伍任务: %s params=%s", task_name, params)
         return self.task_manager.create(task_name, **params)
 
-    def create_agents(self, brain: Optional[Any] = None,
-                      tracker: Optional[Any] = None) -> None:
-        """为窗口已绑定的账号创建 Agent；每个 Agent 持有独立任务状态机。"""
+    def create_agents(self, brain: Optional[Any] = None, tracker: Optional[Any] = None) -> None:
+        vision = self.settings.get("vision", {})
+        roi = vision.get("ocr_regions", [])
+        roi = [tuple(r) for r in roi if isinstance(r, (list, tuple)) and len(r) == 4]
         for acc_id, acc in self.accounts.items():
             if acc.win is None:
                 continue
-            task = None
-            if self._task_name:
-                task = self.task_manager.create(self._task_name, **self._task_params)
+            task = self.task_manager.create(self._task_name, **self._task_params) if self._task_name else None
             agent = GameAgent(acc, brain=brain, tracker=tracker,
-                              ocr_backend=self.ocr_backend,
-                              tick_seconds=self.tick, task=task)
+                              ocr_backend=self.ocr_backend, tick_seconds=self.tick, task=task)
+            if roi:
+                agent.ocr.set_roi(roi)
             self.agents[acc_id] = agent
 
     def start(self, goal: str = "", max_steps: Optional[int] = None) -> None:
         self._stop.clear()
         for acc_id, agent in self.agents.items():
-            t = threading.Thread(target=self._run_one,
-                                 args=(acc_id, agent, goal, max_steps),
-                                 daemon=True, name=f"agent-{acc_id}")
+            t = threading.Thread(target=self._run_one, args=(acc_id, agent, goal, max_steps), daemon=True, name=f"agent-{acc_id}")
             self._threads[acc_id] = t
             t.start()
         self.team.status = TeamStatus.TASKING
 
-    def _run_one(self, acc_id: str, agent: GameAgent, goal: str,
-                 max_steps: Optional[int]) -> None:
+    def _run_one(self, acc_id: str, agent: GameAgent, goal: str, max_steps: Optional[int]) -> None:
         try:
             steps = 0
             while not self._stop.is_set():
@@ -121,7 +109,7 @@ class Coordinator:
                     time.sleep(self.tick)
                     continue
                 try:
-                    result = agent.step(goal)
+                    agent.step(goal)
                     steps += 1
                     if acc_id == self.team.leader:
                         self._sync_wait(agent)
@@ -132,7 +120,6 @@ class Coordinator:
                     agent.account.state.anomaly = True
                     if acc_id == self.team.leader:
                         self.team.remove_member(acc_id)
-                        logger.info("队长 %s 异常, 切换到 %s", acc_id, self.team.leader)
                     break
                 time.sleep(self.tick)
         finally:
@@ -153,9 +140,7 @@ class Coordinator:
         self._paused.add(account_id)
         self._manual.add(account_id)
         if account_id in self.agents:
-            self.agents[account_id].account.state.anomaly = False
             self.agents[account_id].account.state.last_activity = "MANUAL(人工接管)"
-        logger.info("账号 %s 切换到人工接管", account_id)
         return True
 
     def resume_account(self, account_id: str) -> bool:
@@ -168,7 +153,6 @@ class Coordinator:
             ev.set()
         if account_id in self.agents:
             self.agents[account_id].account.state.last_activity = "AUTO(自动)"
-        logger.info("账号 %s 恢复自动运行", account_id)
         return True
 
     def paused_accounts(self) -> list:
