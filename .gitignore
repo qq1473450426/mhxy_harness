@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# 环境/配置
+.env
+
+# 日志与数据
+logs/
+replay/
+data.sqlite3
+*.db
+
+# 模型文件
+models/*.pt
+models/*.onnx
+models/*.bin
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 前端
+node_modules/
+ui/dist/
+
+# 临时
+*.tmp

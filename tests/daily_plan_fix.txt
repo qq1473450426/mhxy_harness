@@ -1,0 +1,5 @@
+﻿def test_out_of_range():
+    # 999天命中"长期搬砖期"(61-999), 返回正常计划而非崩溃
+    p = plan_for_day(999)
+    assert len(p["daily_flow"]) >= 1
+    assert "day" in p

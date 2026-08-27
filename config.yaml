@@ -1,0 +1,74 @@
+# ============================================================
+# 梦幻西游 PC 端五开本地 AI 自动任务系统 - 全局配置
+# ============================================================
+system:
+  max_accounts: 5
+  language: zh-CN
+  project_name: mhxy_local_ai
+
+automation:
+  auto_start: false          # 安全原则: 默认禁止自动启动
+  max_retry: 3               # 单个 Action 最大重试次数
+  action_timeout: 10         # 单个 Action 超时(秒)
+  state_timeout: 30          # 状态无变化判定(秒)
+  tick_seconds: 0.5          # Agent Loop 主循环间隔
+
+vision:
+  fps: 10                    # 截图/视觉识别目标帧率
+  capture_backend: mss       # mss | pil
+  ocr_backend: rapidocr      # rapidocr | none
+  template_threshold: 0.85   # 模板匹配阈值
+
+input:
+  backend: pyautogui         # pyautogui | win32 (预留)
+  failsafe: true             # 鼠标甩到角落紧急停止
+  move_duration: 0.05        # 移动耗时(秒)
+
+llm:
+  provider: ollama           # ollama | openai(兼容) | mock
+  model: qwen2.5:7b          # 本地模型名(需 ollama pull)
+  base_url: http://127.0.0.1:11434
+  temperature: 0.2
+  max_tokens: 512
+  # 事件触发, 不每帧调用(规格书 §52)
+
+embedding:
+  model: bge-m3              # 可选; 未安装时用内置 numpy 向量(完全离线)
+
+knowledge:
+  repo: D:/project/python/mhxy_ai/xyq-skills   # 本地知识库根目录(14 模块)
+  vector_db: numpy           # numpy(内置,零依赖) | faiss | chroma | lancedb
+
+ui:
+  host: 127.0.0.1
+  port: 8080
+
+logging:
+  level: INFO
+  console: true
+  max_bytes: 5242880         # 5MB 滚动
+  backup_count: 3
+
+accounts:
+  leader: account_01
+  list:
+    - id: account_01
+      role: leader           # leader | follower
+      enabled: true
+      window_title: "梦幻西游 ONLINE"
+    - id: account_02
+      role: follower
+      enabled: true
+      window_title: "梦幻西游 ONLINE"   # 五开时改为各账号专属标题
+    - id: account_03
+      role: follower
+      enabled: true
+      window_title: "梦幻西游 ONLINE"
+    - id: account_04
+      role: follower
+      enabled: true
+      window_title: "梦幻西游 ONLINE"
+    - id: account_05
+      role: follower
+      enabled: true
+      window_title: "梦幻西游 ONLINE"

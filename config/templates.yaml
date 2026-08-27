@@ -1,0 +1,84 @@
+elements:
+  char_name:
+    file: char_name.png
+    threshold: 0.82
+    region:
+    - 0
+    - 0
+    - 415
+    - 65
+  guide_btn:
+    file: guide_btn.png
+    threshold: 0.82
+    region:
+    - 0
+    - 110
+    - 93
+    - 104
+  calendar_btn:
+    file: calendar_btn.png
+    threshold: 0.82
+    region:
+    - 37
+    - 110
+    - 120
+    - 104
+  task_track_btn:
+    file: task_track_btn.png
+    threshold: 0.82
+    region:
+    - 610
+    - 136
+    - 154
+    - 106
+  mall_btn:
+    file: mall_btn.png
+    threshold: 0.82
+  first_charge_btn:
+    file: first_charge_btn.png
+    threshold: 0.82
+    region:
+    - 42
+    - 160
+    - 112
+    - 100
+  shimen_task_panel:
+    file: shimen_task_panel.png
+    threshold: 0.82
+    region:
+    - 523
+    - 171
+    - 164
+    - 116
+  growth_trial_btn:
+    file: growth_trial_btn.png
+    threshold: 0.82
+    region:
+    - 0
+    - 195
+    - 152
+    - 116
+  vip_btn:
+    file: vip_btn.png
+    threshold: 0.82
+    region:
+    - 0
+    - 251
+    - 106
+    - 102
+  xianshi_task_panel:
+    file: xianshi_task_panel.png
+    threshold: 0.82
+    region:
+    - 567
+    - 241
+    - 162
+    - 114
+  yanta_task_panel:
+    file: yanta_task_panel.png
+    threshold: 0.82
+    region:
+    - 566
+    - 342
+    - 162
+    - 118

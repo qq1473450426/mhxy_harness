@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><title>梦幻西游五开AI作战台</title>
+<style>body{font-family:system-ui;margin:20px;background:#1a1a2e;color:#eee}h1{color:#0ff}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.card{background:#16213e;border:1px solid #333;border-radius:8px;padding:12px}
+.card.paused{border-color:#e74c3c}.card h3{color:#f5c518}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px}
+.running{background:#2ecc71}.stopped{background:#555}.anomaly{background:#e74c3c}.manual{background:#f5c518}
+.log{font-family:monospace;font-size:12px;color:#aaa}
+.ctrl{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}
+.accbtn{font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;border:0;margin-top:4px}
+.accbtn.manual{background:#f5c518;color:#000}.accbtn.auto{background:#3498db;color:#fff}
+button{background:#0ff;border:0;padding:8px 14px;border-radius:6px;color:#000;cursor:pointer;font-weight:bold}
+button.danger{background:#e74c3c;color:#fff}button.gray{background:#555;color:#fff}button.green{background:#2ecc71;color:#fff}
+#runner{border:1px solid #0ff;border-radius:8px;padding:10px;margin-bottom:12px}
+.panel{border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:12px;background:#0f2240}
+.panel h2{color:#0ff;font-size:16px;margin:0 0 8px}
+.tierS{color:#f5c518}.tierA{color:#2ecc71}.tierB{color:#3498db}
+#tip{border:1px solid #f5c518;border-radius:8px;padding:10px;margin-bottom:12px;background:#2a2410}</style></head><body>
+<h1>梦幻西游五开本地 AI 作战台</h1>
+<div id="tip">💡 新手提示：先点「打开游戏」，手动登录后点「启动自主游戏」。系统不代你登录。</div>
+<div id="runner"></div>
+<div class="ctrl">
+<button class="green" onclick="game(launch)">打开游戏客户端</button>
+<button class="danger" onclick="game(shutdown)">关闭游戏</button>
+<button onclick="ctrl(START)">启动自主游戏</button>
+<button class="danger" onclick="ctrl(STOP)">停止</button>
+<button class="gray" onclick="ctrl(OPTIMIZE)">训练优化</button>
+<button class="gray" onclick="ctrl(MANUAL)">整体接管</button>
+</div>
+<div id="team"></div>
+<div class="panel"><h2>推荐任务 (按推荐度)</h2><div id="tasks"></div></div>
+<div class="panel"><h2>五开里程碑</h2><div id="roadmap"></div></div>
+<div class="grid" id="accounts"></div>
+<script>
+const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
+ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==="state")render(m.data)};
+function ctrl(a){fetch("/api/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:a})}).then(r=>r.json()).then(d=>{alert(d.note||a);refresh()})}
+function game(a){fetch("/api/game/"+a,{method:"POST"}).then(r=>r.json()).then(d=>{alert(d.note||a);refresh()})}
+function accCtrl(a,id){fetch("/api/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:a,account_id:id})}).then(r=>r.json()).then(d=>{alert(d.note||a);refresh()})}
+function refresh(){fetch("/api/status").then(r=>r.json()).then(render)}
+function render(d){const r=d.runner||{};
+document.getElementById("runner").innerHTML="自主游戏: <b>"+(r.phase||"idle")+"</b> | 运行:"+(r.running?"是":"否")+(r.dry_run?"（安全模式）":"")+(r.optimize?" | 优化成功率"+(r.optimize.success_rate*100).toFixed(1)+"%":"")+" | 接管:"+((r.paused||[]).join(",")||"无");
+const t=d.team||{};document.getElementById("team").innerHTML='<div class="card"><h3>队伍状态</h3><p>队长: <b>'+(t.leader||"-")+'</b> | 备用: '+(t.backup_leader||"-")+' | '+t.status+'</p><p>任务: '+(t.task||"-")+' | 同步 '+(t.synced||0)+'/'+(t.total||0)+'</p></div>';
+const paused=r.paused||[];const a=d.accounts||{};
+document.getElementById("accounts").innerHTML=Object.entries(a).map(([id,x])=>{const isP=paused.indexOf(id)>=0;return '<div class="card'+(isP?" paused":"")+'"><h3>'+(x.character_name||id)+' '+(isP?'<span class="badge manual">接管中</span>':'<span class="badge '+(x.running?"running":"stopped")+'">'+(x.running?"运行中":"停止")+'</span>')+'</h3><p>角色:'+(x.role||"")+' | 等级:'+(x.level||0)+' | '+x.state+'</p><p>地图:'+(x.map||"-")+' | 任务:'+(x.task||"-")+'</p><p>最近: <span class="log">'+(x.last_activity||"-")+'</span></p>'+(isP?'<button class="accbtn auto" onclick="accCtrl(RESUME,\''+id+'\\')">恢复自动</button>':'<button class="accbtn manual" onclick="accCtrl(MANUAL,\''+id+'\\')">人工接管</button>')+'<img src=/api/screenshot/'+id+' style="width:100%;border-radius:4px;margin-top:6px" onerror="this.style.display=none"></div>'}).join("");
+loadTasks(69);loadRoadmap();refresh();}
+function loadTasks(level){fetch("/api/tasks/recommend?level="+level).then(r=>r.json()).then(d=>{const e=document.getElementById("tasks");e.innerHTML=(d.tasks||[]).slice(0,8).map(t=>'<span class="tier'+t.tier+'">['+t.tier+']</span>'+t.name+' (现金:'+t.cash+' 物品:'+t.item+')<br>').join("")})}
+function loadRoadmap(){fetch("/api/plan/roadmap").then(r=>r.json()).then(d=>{const e=document.getElementById("roadmap");e.innerHTML=(d.roadmap||[]).map(m=>'<p>第'+m.day+'天: '+m.goal+' (等级'+m.level+')</p>').join("")})}
+refresh();</script></body></html>

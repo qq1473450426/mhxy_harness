@@ -1,0 +1,7 @@
+# ============================================================
+# 知识库 RAG 依赖 (Phase 3 使用, 可选安装)
+# 注意: faiss/sentence-transformers 可能需要 Python <=3.12
+# 安装: pip install -r requirements-rag.txt
+# ============================================================
+faiss-cpu>=1.8
+sentence-transformers>=2.7
