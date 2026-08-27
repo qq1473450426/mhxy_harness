@@ -16,6 +16,11 @@ vision:
   capture_backend: mss
   ocr_backend: rapidocr
   template_threshold: 0.85
+  # 游戏窗口约 812x663 时：右侧任务追踪 + 中下部 NPC 对话。
+  # 使用归一化坐标，自动适配窗口尺寸；左侧聊天区不再进入常规 OCR。
+  ocr_regions:
+    - [0.68, 0.14, 0.32, 0.40]
+    - [0.05, 0.48, 0.90, 0.38]
 
 input:
   backend: win32
