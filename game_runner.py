@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""自主游戏编排器：支持真实窗口附着、自动执行和人类示范学习。"""
+"""自主游戏编排器：真实桌面执行、人类示范学习和策略评分。"""
 from __future__ import annotations
 import json, logging, os, threading, time
 from typing import Any, Dict, Optional
@@ -8,13 +8,13 @@ from automation.window import WindowInfo
 from core.coordinator import Coordinator
 from core.rl_env import ProxyGameEnvironment
 from core.human_learning import HumanDemoRecorder, VisualDemoPolicy, LearningScore, DemoAction
-logger = logging.getLogger(__name__)
+logger=logging.getLogger(__name__)
 
 class GameRunner:
-    def __init__(self, settings: Dict[str, Any], dry_run: bool = False) -> None:
-        self.settings=settings; self.dry_run=dry_run; self.client=GameClient(); self.coordinator: Optional[Coordinator]=None; self.rl_env=None
-        self._thread=None; self._stop=threading.Event(); self._running=False; self._phase="idle"; self._last_status={}; self._last_optimize={}; self._battle_monitor=None; self._battle_stats={}
-        self.learning_recorder: Optional[HumanDemoRecorder]=None; self.learning_policy=VisualDemoPolicy.load("learning/policy.json"); self._learning_result={}; self._learning_run_result={}
+    def __init__(self,settings:Dict[str,Any],dry_run:bool=False)->None:
+        self.settings=settings;self.dry_run=dry_run;self.client=GameClient();self.coordinator:Optional[Coordinator]=None;self.rl_env=None
+        self._thread=None;self._stop=threading.Event();self._running=False;self._phase="idle";self._last_status={};self._last_optimize={};self._battle_monitor=None;self._battle_stats={}
+        self.learning_recorder:Optional[HumanDemoRecorder]=None;self.learning_policy=VisualDemoPolicy.load("learning/policy.json");self._learning_result={};self._learning_run_result={}
     def start(self,task="shimen",goal="",auto=True):
         if self._running:return False
         self._stop.clear();self._running=True;self._thread=threading.Thread(target=self._run,args=(task,goal,auto),daemon=True);self._thread.start();return True
@@ -92,7 +92,7 @@ class GameRunner:
             try:ar=agent.act(d,agent.observe());return {"ok":bool(ar.ok),"desc":ar.desc,"error":ar.error}
             except Exception as exc:return {"ok":False,"error":str(exc)}
         return ProxyGameEnvironment(observe_fn,act_fn,lambda obs:1.0 if obs.get("team",{}).get("status")=="TASKING" else 0.0)
-
+    # ---------------- 人类示范学习 ----------------
     def start_learning(self,win:WindowInfo)->Dict[str,Any]:
         if self._running:return {"ok":False,"error":"请先停止自动任务"}
         if win is None or not win.is_valid():return {"ok":False,"error":"窗口无效"}
@@ -125,6 +125,9 @@ class GameRunner:
                     with Image.open(sp) as im:rgb=im.convert("RGB");w,h=rgb.size;data=rgb.tobytes()
                     action=DemoAction(ts=float(row.get("ts",0)),kind=str(row.get("kind","")),x=row.get("x"),y=row.get("y"),key=row.get("key"),mods=row.get("mods"),state_file=sf,episode=name)
                     policy.add_demo(data,w,h,action,1.0 if success else 0.2);loaded+=1
+                terminal=os.path.join(d,"terminal.png")
+                if success and os.path.isfile(terminal):
+                    with Image.open(terminal) as im:rgb=im.convert("RGB");policy.add_terminal(rgb.tobytes(),*rgb.size,name)
             except Exception as exc:logger.warning("示范读取失败 %s: %s",d,exc)
         stats=policy.train(passes=max(1,int(passes)))
         if not stats.get("ok"):return stats
@@ -137,25 +140,27 @@ class GameRunner:
             from automation.input_driver import InputDriver
             from core.action_verifier import ActionVerifier
             driver=InputDriver(win,backend="win32",move_duration=float(self.settings.get("input",{}).get("move_duration",0.12)));verifier=ActionVerifier(threshold=0.012,settle_ms=250)
-            started=time.perf_counter();steps=0;ok_count=0;fail_count=0;completed=False
+            started=time.perf_counter();steps=0;ok_count=0;fail_count=0;completed=False;terminal_similarity=0.0
             while steps<max_steps and time.perf_counter()-started<max_seconds:
                 from vision.capture import capture_window
                 frame,(w,h)=capture_window(win);pred=self.learning_policy.predict(frame,w,h,min_similarity=0.78)
                 if not pred:break
-                kind=pred.get("kind")
-                if kind=="CLICK":
+                if pred.get("kind")=="CLICK":
                     before=(frame,(w,h));ar=driver.click(int(pred.get("x",0)),int(pred.get("y",0)),"RL示范策略")
                     if ar.ok:ok_count+=1;verifier.verify(win,before,settle_ms=250)
                     else:fail_count+=1
-                elif kind=="PRESS":
+                elif pred.get("kind")=="PRESS":
                     ar=driver.press(str(pred.get("key","")),"RL示范策略");ok_count+=int(ar.ok);fail_count+=int(not ar.ok)
                 else:break
                 steps+=1;time.sleep(0.18)
+                try:
+                    after,(aw,ah)=capture_window(win);completed,terminal_similarity=self.learning_policy.is_terminal(after,aw,ah,threshold=0.90)
+                except Exception:pass
                 if completed:break
-            duration=time.perf_counter()-started;result=LearningScore.calculate(steps,ok_count,fail_count,completed,duration);result.update({"ok":True,"policy_states":len(self.learning_policy.q),"stop_reason":"completed" if completed else "policy_or_limit"});self._learning_run_result=result;self._learning_result=result;return result
+            duration=time.perf_counter()-started;result=LearningScore.calculate(steps,ok_count,fail_count,completed,duration);result.update({"ok":True,"policy_states":len(self.learning_policy.q),"terminal_similarity":round(terminal_similarity,4),"stop_reason":"completed" if completed else "policy_or_limit"});self._learning_run_result=result;self._learning_result=result;return result
         except Exception as exc:logger.exception("learned run failed");return {"ok":False,"error":str(exc)}
     def learning_status(self)->Dict[str,Any]:
-        r=self.learning_recorder;return {"recording":bool(r and r.running),"path":r.session_dir if r else "","actions":len(r.actions) if r else 0,"policy_samples":len(self.learning_policy.samples),"policy_states":len(self.learning_policy.q),"last_train":self._learning_result,"last_run":self._learning_run_result}
+        r=self.learning_recorder;return {"recording":bool(r and r.running),"path":r.session_dir if r else "","actions":len(r.actions) if r else 0,"policy_samples":len(self.learning_policy.samples),"policy_states":len(self.learning_policy.q),"terminal_states":len(self.learning_policy.terminals),"last_train":self._learning_result,"last_run":self._learning_run_result}
     def init_battle_monitor(self):
         try:
             from core.battle_monitor import BattleMonitor
