@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """自主游戏编排器：支持真实窗口附着、自动执行和人类示范学习。"""
 from __future__ import annotations
-import logging, os, threading, time
+import json, logging, os, threading, time
 from typing import Any, Dict, Optional
 from automation.lifecycle import GameClient
 from automation.window import WindowInfo
 from core.coordinator import Coordinator
 from core.rl_env import ProxyGameEnvironment
-from core.human_learning import HumanDemoRecorder, VisualDemoPolicy, LearningScore
+from core.human_learning import HumanDemoRecorder, VisualDemoPolicy, LearningScore, DemoAction
 logger = logging.getLogger(__name__)
 
 
@@ -130,39 +130,32 @@ class GameRunner:
         if self.learning_recorder and self.learning_recorder.running: return {"ok": False, "error": "已经在学习监听中"}
         try:
             self.learning_recorder=HumanDemoRecorder(win, root="learning/demos", sample_hz=4.0)
-            path=self.learning_recorder.start()
-            self._phase="human_learning"; self._learning_result={"ok":True,"status":"recording","path":path,"actions":0}
-            return self._learning_result
+            path=self.learning_recorder.start(); self._phase="human_learning"
+            self._learning_result={"ok":True,"status":"recording","path":path,"actions":0}; return self._learning_result
         except Exception as exc:
             logger.exception("human learning start failed"); return {"ok":False,"error":str(exc)}
 
     def stop_learning(self, success: bool = True) -> Dict[str, Any]:
-        if not self.learning_recorder or not self.learning_recorder.running:
-            return {"ok":False,"error":"当前没有正在监听的示范"}
+        if not self.learning_recorder or not self.learning_recorder.running: return {"ok":False,"error":"当前没有正在监听的示范"}
         try:
             path=self.learning_recorder.stop(); count=len(self.learning_recorder.actions)
+            self.learning_recorder._write_meta({"success": bool(success)})
             self._learning_result={"ok":True,"status":"completed","success":bool(success),"path":path,"actions":count}
             self._phase="idle"; return self._learning_result
         except Exception as exc: return {"ok":False,"error":str(exc)}
 
     def train_learning(self, passes: int = 8) -> Dict[str, Any]:
-        """读取所有历史示范，成功示范获得更高终止回报，多次示范累积 replay buffer。"""
-        policy=VisualDemoPolicy()
-        demo_root="learning/demos"
+        policy=VisualDemoPolicy(); demo_root="learning/demos"
         if not os.path.isdir(demo_root): return {"ok":False,"error":"没有 learning/demos 示范数据"}
         loaded=0; demos=0
         for name in sorted(os.listdir(demo_root)):
-            d=os.path.join(demo_root,name)
-            actions_path=os.path.join(d,"actions.jsonl")
+            d=os.path.join(demo_root,name); actions_path=os.path.join(d,"actions.jsonl")
             if not os.path.isfile(actions_path): continue
-            demos += 1
-            success=True
-            meta_path=os.path.join(d,"meta.json")
+            demos += 1; success=True
             try:
-                with open(meta_path,"r",encoding="utf-8") as f: success=bool(json.load(f).get("success",True))
+                with open(os.path.join(d,"meta.json"),"r",encoding="utf-8") as f: success=bool(json.load(f).get("success",True))
             except Exception: pass
             try:
-                import json
                 with open(actions_path,"r",encoding="utf-8") as f: rows=[json.loads(x) for x in f if x.strip()]
                 for row in rows:
                     sf=row.get("state_file",""); sp=os.path.join(d,sf)
@@ -170,19 +163,16 @@ class GameRunner:
                     from PIL import Image
                     with Image.open(sp) as im:
                         rgb=im.convert("RGB"); w,h=rgb.size; data=rgb.tobytes()
-                    reward=(1.0 if success else 0.2)
-                    policy.add_demo(data,w,h,type("A",(),row)(),reward)
-                    loaded += 1
-            except Exception as exc:
-                logger.warning("示范读取失败 %s: %s",d,exc)
+                    action=DemoAction(ts=float(row.get("ts",0)),kind=str(row.get("kind","")),x=row.get("x"),y=row.get("y"),key=row.get("key"),mods=row.get("mods"),state_file=sf)
+                    policy.add_demo(data,w,h,action,1.0 if success else 0.2); loaded += 1
+            except Exception as exc: logger.warning("示范读取失败 %s: %s",d,exc)
         stats=policy.train(passes=max(1,int(passes)))
         if not stats.get("ok"): return stats
         policy.save("learning/policy.json"); self.learning_policy=policy
-        stats.update({"demos":demos,"policy":"learning/policy.json"}); self._learning_result=stats
+        stats.update({"demos":demos,"loaded":loaded,"policy":"learning/policy.json"}); self._learning_result=stats
         return stats
 
     def run_learned_once(self, win: WindowInfo, max_steps: int = 120, max_seconds: float = 180.0) -> Dict[str, Any]:
-        """用已训练策略在真实窗口运行一次；不启动原任务线程，避免与学习策略抢输入。"""
         if self.learning_recorder and self.learning_recorder.running: return {"ok":False,"error":"请先停止示范监听"}
         if win is None or not win.is_valid(): return {"ok":False,"error":"窗口无效"}
         if not self.learning_policy.samples: return {"ok":False,"error":"还没有训练策略，请先完成示范并训练"}
@@ -194,10 +184,8 @@ class GameRunner:
             started=time.perf_counter(); steps=0; ok_count=0; fail_count=0; completed=False
             while steps < max_steps and time.perf_counter()-started < max_seconds:
                 from vision.capture import capture_window
-                frame,(w,h)=capture_window(win)
-                pred=self.learning_policy.predict(frame,w,h,min_similarity=0.78)
-                if not pred:
-                    break
+                frame,(w,h)=capture_window(win); pred=self.learning_policy.predict(frame,w,h,min_similarity=0.78)
+                if not pred: break
                 kind=pred.get("kind")
                 if kind=="CLICK":
                     before=(frame,(w,h)); ar=driver.click(int(pred.get("x",0)),int(pred.get("y",0)),"RL示范策略")
@@ -205,29 +193,20 @@ class GameRunner:
                         ok_count+=1; verifier.verify(win,before,settle_ms=250)
                     else: fail_count+=1
                 elif kind=="PRESS":
-                    ar=driver.press(str(pred.get("key","")),"RL示范策略")
-                    if ar.ok: ok_count+=1
-                    else: fail_count+=1
-                else:
-                    break
-                steps += 1
-                time.sleep(0.18)
-                # 用现有任务状态机做“完成”探针，不执行它的动作。
+                    ar=driver.press(str(pred.get("key","")),"RL示范策略"); ok_count += int(ar.ok); fail_count += int(not ar.ok)
+                else: break
+                steps += 1; time.sleep(0.18)
                 try:
                     if self.coordinator and self.coordinator.agents.get(self.coordinator.team.leader):
                         agent=self.coordinator.agents[self.coordinator.team.leader]; gs=agent.observe()
                         if agent.task is not None:
-                            agent.task.step(gs)
-                            status=getattr(agent.task.status,"value",str(agent.task.status))
-                            completed=status=="COMPLETED"
-                except Exception:
-                    pass
+                            agent.task.step(gs); status=getattr(agent.task.status,"value",str(agent.task.status)); completed=status=="COMPLETED"
+                except Exception: pass
                 if completed: break
             duration=time.perf_counter()-started
             result=LearningScore.calculate(steps,ok_count,fail_count,completed,duration)
             result.update({"ok":True,"policy_states":len(self.learning_policy.q),"stop_reason":"completed" if completed else "policy_or_limit"})
-            self._learning_run_result=result; self._learning_result=result
-            return result
+            self._learning_run_result=result; self._learning_result=result; return result
         except Exception as exc:
             logger.exception("learned run failed"); return {"ok":False,"error":str(exc)}
 
